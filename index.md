@@ -17,6 +17,8 @@ without the official app.
 1. **[BLE protocol](protocol.md)**: frame format, how the app talks to the ARC, what is required and what is optional.
 2. **[In-game communication](game.md)**: what flows between the ARC and the app, from a new game, through rounds, to the end of a match.
 3. **[Firmware update](update.md)**: how updates work, why the app blocks them, and how to update manually.
+4. **[Game setup](setup.md)**: planets and their effects, auxiliary fleets, managers, and traces of the planned metagame.
+5. **[Online services](online.md)**: everything the app requested from the publisher's server and what was lost with it.
 
 ## Where this comes from
 
