@@ -152,6 +152,8 @@ What the 1.3.13 code actually does:
   and the game starts with fleet `0`.
 - The handler for the fleet NFC card (event `02 04 …`) only writes the card data to the console.
 - There is no command in the app that unlocks a fleet on the ARC.
+- The ARC firmware, on the other hand, can read and write a 16-byte record on a card (see
+  [the card record](cards.md#the-card-record)), so the card side of fleet trading existed on the device.
 
 ### What a real ARC reports (confirmed)
 

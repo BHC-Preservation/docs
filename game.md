@@ -196,6 +196,8 @@ The app filters events by the rules: no duplicate buildings, one decree per roun
 no decrees in the last round, ambassador only once. In multiplayer modes the app waits for a player to tap
 their manager card to assign a building or decree to them.
 
+Card types, IDs and the full rule set are described in [NFC cards and tokens](cards.md).
+
 ### Simulating events
 
 The app has hidden test functions that send the ARC command `05 01` + 16 B of event (format as in the table
