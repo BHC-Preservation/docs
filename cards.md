@@ -301,8 +301,8 @@ locked (see [game setup](setup.md#what-a-real-arc-reports-confirmed)). How the o
 is unknown.
 
 On the ARC side the picture is different (see [the card record](#the-card-record)): the firmware can **write**
-a record to a card on request from its game engine, not only read one. So the transfer mechanism the texts
-promise was at least partly built into the ARC; only the app side that would trigger it is missing.
+a record to a card when asked over BLE, not only read one. So the card side of the transfer the texts promise
+was built into the ARC; only the app side that would trigger it is missing.
 
 ## The card record
 
@@ -328,17 +328,37 @@ The ARC reads **16 bytes starting at page 8** (pages 8–11) and checks them bef
 
 There is **no encryption or signature**. A record with the right type byte and CRC is accepted.
 
-Card types 1–4 match the board events the app knows (manager, decree/directive, governor/ambassador, fleet).
-**Type 5 is accepted by the ARC but unknown to the app.**
+The ARC does not interpret the record. It only checks the type range and the CRC, then forwards bytes 0–14
+unchanged to the app as a board event: `55 05 16 02 01 02 <type> <bytes 1–14> <crc>`. Everything after that is
+the app's job. Bytes 2–14 are ignored by both the firmware and app 1.3.13 (the app only logs them for fleet
+cards), so what real cards store there can only be learned by reading them.
+
+| type | meaning (app) | byte 1 |
+|---|---|---|
+| 1 | manager card | manager ID |
+| 2 | decree or directive | decree ID (201–209 = directive) |
+| 3 | governor token or ambassador | `1` = governor, anything else = ambassador |
+| 4 | fleet card | logged only |
+| 5 | **nothing**: accepted by the ARC, but app 1.3.13 logs it as an unknown card type | — |
+
+Type 5 has no meaning anywhere in firmware 1.0.23 or app 1.3.13; it was most likely reserved for something
+that never shipped.
 
 A tag whose SAK byte is `04` is ignored. The ARC also reads the tag's UID before every read or write, but the
 record is what identifies the card.
 
 ### Writing
 
-The firmware's reader loop can write a 16-byte record (15 data bytes plus the CRC it computes) to pages 8–11 of
-the card on the reader, retrying up to 20 times. The write is requested by the ARC's game engine. Which game
-action triggers it, and what it writes, is not known yet. No BLE command in the app requests a write.
+The firmware can write a 16-byte record to pages 8–11 of the card on the reader, retrying up to 20 times.
+The write is requested **over BLE**, with a category `02` command the app never sends:
+
+```
+55 05 15 02 02 <15 bytes: type + bytes 1–14> <crc>
+```
+
+The ARC computes the record's own CRC (byte 15) itself and does not check the type byte when writing. Only one
+write can be pending at a time. A client other than the app could therefore use the ARC itself to write cards,
+for example to recreate a lost card. This has not been tried on a device.
 
 ### Consequences for preservation
 
@@ -349,8 +369,7 @@ action triggers it, and what it writes, is not known yet. No BLE command in the 
 
 ## What is unknown
 
-- **The layout of bytes 1–14** for each card type, especially fleet cards (type 4) and type 5.
-- **When the ARC writes a card** and what it writes.
+- **What real cards store in bytes 2–14**, especially fleet cards (type 4).
 - **The exact event frames** the ARC sends (length, status byte, padding), and whether the ARC sends events
   outside game mode.
 - **Whether the ARC enforces any of the rules above** or accepts any action list it is given.
