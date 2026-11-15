@@ -172,9 +172,50 @@ Read on an ARC with firmware 1.0.23 (November 2026), outside game mode, with no 
   so 1–10 is most likely the factory default.
 
 So the ARC already offers ten fleets, and only the app's `_debug` gate hides them from players.
-A client without that gate (our own, or the rebuilt app with the check removed) should be able to start a
-game with fleets 1–10. That last step is not yet tested on a device. How fleets 11+ would be unlocked
-(NFC card or a command we have not found) is still unknown and probably lives only in the firmware.
+
+### How fleets are granted (firmware analysis, unlock confirmed)
+
+Static analysis of firmware 1.0.23 shows how the ARC manages fleets:
+
+- The availability table lives in the ARC's **external EEPROM**, with its own checksum. It survives reboots,
+  games and firmware updates.
+- The defaults (fleets 1–10 available, everything else locked) are written **once**, when the EEPROM is first
+  formatted. So 1–10 really is the factory state.
+- Two BLE commands change the table. Neither needs authentication or game mode, and the app never sends them:
+
+| command | payload | effect |
+|---|---|---|
+| unlock | `01 01 04 02 <slot>` | slot becomes `2` (available) |
+| lock | `01 01 04 03 <slot>` | slot becomes `1` (locked) |
+
+  `slot` is **fleet number − 1**. The reply is `01 01 00` on success.
+- Nothing else changes the table: no reward for winning, nothing in the NFC card path. Fleets were meant to be
+  granted from outside, by the app or the Exogen backend sending these commands. A fleet "trade" would have
+  been the app writing a card (`02 02`, see [cards](cards.md#writing)) and locking the fleet on one ARC, then
+  reading the card and unlocking the fleet on the other.
+
+**Confirmed** on a real ARC (firmware 1.0.23, November 2026), unlocking fleet 11:
+
+```
+> 55 05 09 01 01 04 02 0a bb      unlock slot 10 = fleet 11
+< 55 05 07 01 01 00 94            OK
+> 55 05 08 01 01 04 01 86
+< 55 05 9c 01 01  02 ×11  01 ×139  5a
+```
+
+Fleets 1–11 now read as available. The lock command for the same fleet is `55 05 09 01 01 04 03 0a ae`.
+Every change rewrites the fleet section of the EEPROM, so use fresh batteries.
+
+### Fleets in a game
+
+- When a new game starts (after the authentication step), the ARC checks the fleet byte from the start data.
+  A **locked fleet makes the game start fail**. Fleet `0` (none) is always fine. Loading a save runs the same
+  check, so a save made with a fleet that was later locked will not load.
+- The ARC has effect data for **fleets 1–20 only**. Fleets 5, 7, 13, 15 and 18 have no effect on the ARC side
+  (their bonuses are for the players: starting resources, expeditions, decree cards), and the entries for 6 and
+  20 are disabled. **Fleets 21–27, described in the app, do nothing on the ARC.**
+- To actually play with a fleet you still need a client without the app's `_debug` gate: our own, or the
+  rebuilt app with that check removed.
 
 ## Managers
 

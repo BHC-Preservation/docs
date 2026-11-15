@@ -284,6 +284,10 @@ Byte 0 is the number of synergies, then 2 B pairs: type (`1` minor, `2` major, `
 ### Fleets
 
 Request `01 01 04 01` (frame `55 05 08 01 01 04 01 86`). Response: one byte per fleet slot.
-Value `2` means the fleet is available, `1` most likely locked. The app reads only the first 25 slots.
+Value `2` means the fleet is available, `1` locked. The app reads only the first 25 slots.
 **Confirmed** on firmware 1.0.23: the ARC sends 150 slots, fleets 1–10 are `2` and the rest `1`, and it
 answers outside game mode too. See [game setup](setup.md#auxiliary-fleets).
+
+Unlock `01 01 04 02 <slot>` and lock `01 01 04 03 <slot>` (slot = fleet − 1) change the table; the reply is
+`01 01 00`. **Confirmed** with fleet 11 (`55 05 09 01 01 04 02 0a bb` → `55 05 07 01 01 00 94`). The change is
+stored in the ARC's EEPROM. See [how fleets are granted](setup.md#how-fleets-are-granted-firmware-analysis-unlock-confirmed).
