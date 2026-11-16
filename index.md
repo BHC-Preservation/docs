@@ -19,7 +19,8 @@ without the official app.
 3. **[Firmware update](update.md)**: how updates work, why the app blocks them, and how to update manually.
 4. **[Game setup](setup.md)**: planets and their effects, auxiliary fleets, managers, and traces of the planned metagame.
 5. **[NFC cards and tokens](cards.md)**: manager, decree, directive, ambassador, governor and fleet cards, their IDs and the rules the app applies.
-6. **[Online services](online.md)**: everything the app requested from the publisher's server and what was lost with it.
+6. **[Online services](online.md)**: everything the app requested from the publisher's server, what was lost with it,
+   and a [replacement server](online.md#replacement-server) you can run yourself.
 
 ## Where this comes from
 

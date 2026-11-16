@@ -43,6 +43,8 @@ Here `APP` = `1.3.13`, and `ARC_ID` and `FW` are the values read from the ARC.
 request, so if the request never finishes (we suspect this happens with the broken certificate), the app
 never moves on. A workaround that should help, though we have not tested it: **airplane mode with Bluetooth
 turned on**. The request should then fail immediately and the app fall back to the local check.
+Another option is to point the app at a [replacement server](online.md#replacement-server) that answers
+right away.
 
 ## The "UPGRADE BLOCKED" gate
 
