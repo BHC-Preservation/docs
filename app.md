@@ -87,6 +87,33 @@ Options:
 | `--snapshot=DIR` | take `www/` from another folder |
 | `--api=timeout` (default), `block`, `fake`, or a URL | what happens to requests for the dead publisher API: fail after 1 s, fail at once, answer locally, or forward to a [replacement server](online.md#replacement-server). Without this, the app could hang on "checking firmware" |
 | `--unlock-fleets` | opt-in, one-line patch: the fleet picker uses the ARC's fleet table instead of hiding every fleet (see [setup](setup.md)) |
+| `--fix-task-queue` | opt-in, one-line patch: the connect screen no longer stays at "synchronizing with ARC" when the API answers slowly |
+| `--from-deob`, `--patch=FILE` | build the game code from the deobfuscated modules and apply fixes as diffs (see below) |
+
+## Fixing the game code
+
+The App Store build can't be fixed, but your own rebuild can. `extract` gives you the game code in two forms:
+
+| folder | what it is | use it for |
+|---|---|---|
+| `out/deob/` | webcrack output, 109 modules, verified by checksums | the base that patches apply to |
+| `out/annotated/` | the same modules with about 900 readable names (`u_startScan`, `buildFrame`, `bleState`), **same line numbers** | reading and finding the place to fix |
+
+`extract/rebundle.mjs` puts the modules back into a runnable bundle. With `setup.sh --from-deob` the rebuilt app
+runs that bundle instead of the original file, with your patches applied:
+
+```bash
+cp extract/out/deob/3488.js .           # edit it, using annotated/3488.js to read
+diff -U1 --label a/3488.js --label b/3488.js extract/out/deob/3488.js 3488.js > my-fix.patch
+app-rebuild/setup.sh --from-deob --patch=my-fix.patch
+```
+
+The two fixes we ship (`--unlock-fleets`, `--fix-task-queue`) are one-line patches of this kind.
+**Confirmed (November 2026):** an app built this way, with names applied or without, runs in the Simulator the same
+way as the original up to the main menu.
+
+Under EU law (Article 5 of the Software Directive) the lawful user of a program may correct its errors. Share
+**patches**, with as little context as possible, never patched files or built apps.
 
 ## 3. Run
 
