@@ -92,13 +92,14 @@ Options:
 
 ## Fixing the game code
 
-The App Store build can't be fixed, but your own rebuild can. `extract` gives you the game code in two forms, plus a map:
+The App Store build can't be fixed, but your own rebuild can. `extract` gives you the game code in several forms:
 
 | folder | what it is | use it for |
 |---|---|---|
 | `out/deob/` | webcrack output, 109 modules, verified by checksums | the base that patches apply to |
 | `out/annotated/` | the same modules with about 3100 names found automatically (`u_startScan`, `buildFrame`, `loadingEl`, `_asyncToGenerator`), **same line numbers** | reading and finding the place to fix |
 | `out/map.md` | map of all modules: dependencies, exports, templates, storage keys, BLE frames, messages, bundled libraries | finding the right module |
+| `out/readable/` | the annotated modules run through [wakaru](https://github.com/pionxzh/wakaru): `async`/`await`, classes, `let`/`const`; different line numbers | reading the logic |
 
 `extract/rebundle.mjs` puts the modules back into a runnable bundle. With `setup.sh --from-deob` the rebuilt app
 runs that bundle instead of the original file, with your patches applied:
