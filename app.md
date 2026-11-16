@@ -50,7 +50,7 @@ output identical to our reference copy.
 
 Keep the output to yourself. The repo contains only the script and checksums.
 
-## Rebuilding the app
+## Rebuilding the app: [`app-rebuild`](https://github.com/BHC-Preservation/app-rebuild)
 
 The App Store build can't be patched or re-signed: any change to `www/` breaks its signature. To keep the app
 running when the store version stops installing, and to get a debuggable build, we rebuild the native shell from
@@ -66,10 +66,11 @@ public sources and put the **original, unmodified `www/`** inside it:
 The rebuild takes `www/` from wherever you extracted it, so the two steps are:
 
 ```bash
+git clone https://github.com/BHC-Preservation/app-rebuild.git
 extract/extract.sh                 # → extract/out/app-snapshot
 app-rebuild/setup.sh               # finds ../extract/out/app-snapshot on its own
 # or: app-rebuild/setup.sh --snapshot=/path/to/app-snapshot
 ```
 
 **Status:** runs in the iOS Simulator up to the main menu. Bluetooth (ARC) and firmware updates through the
-rebuilt app have not been tested on a device yet. The rebuild project itself is not public yet.
+rebuilt app have not been tested on a device yet.
