@@ -12,6 +12,9 @@ App version 1.3.13 has not been updated since 2023, and the publisher's update s
 This documentation exists so that the ARC can be used (read, updated and, some day, maybe played with)
 without the official app.
 
+**New (November 2026):** you can [build the app yourself](app.md) from your own copy: same game code, a fresh
+native shell for current iOS, no dependency on the publisher's servers.
+
 ## Contents
 
 1. **[BLE protocol](protocol.md)**: frame format, how the app talks to the ARC, what is required and what is optional.
@@ -21,14 +24,14 @@ without the official app.
 5. **[NFC cards and tokens](cards.md)**: manager, decree, directive, ambassador, governor and fleet cards, their IDs and the rules the app applies.
 6. **[Online services](online.md)**: everything the app requested from the publisher's server, what was lost with it,
    and a [replacement server](online.md#replacement-server) you can run yourself.
-7. **[The app code](app.md)**: how to extract the exact app code we analysed from your own copy, and how the app is rebuilt around it.
+7. **[Build the app yourself](app.md)**: turn your own copy of the app into one you build, sign and debug, for current iOS.
 
 ## Where this comes from
 
 - Analysis of the JavaScript code of app 1.3.13. It is a Cordova app, and all logic lives in the unencrypted
   `www/js/index.min.js`, obfuscated with obfuscator.io. We decoded it with `webcrack`.
   Where it matters, we give the webpack module number, e.g. `5891`.
-  To get the same code from your own copy of the app, see [The app code](app.md).
+  To get the same code from your own copy of the app, see [Build the app yourself](app.md).
 - Tests on a real ARC (November 2026): reading device info, entering the bootloader and updating firmware
   1.0.13 → 1.0.23 without the official app.
 

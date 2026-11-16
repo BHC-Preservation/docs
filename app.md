@@ -1,28 +1,45 @@
 ---
-title: The app code
+title: Build the app yourself
 ---
 
-# The app code: extracting and rebuilding
+# Build the app yourself
 
 [← contents](index.md)
 
-This site describes the app but contains none of its code. If you own the app, you can get the exact
-same code we analysed and check that it matches, byte for byte.
+If you own *Colonies* 1.3.13, you can turn your copy into an app that **you build, sign and debug yourself**.
+It is the same game code, byte for byte, in a fresh native shell made for current iOS and Xcode. It keeps
+working when the App Store version stops installing, and it doesn't depend on the publisher's servers.
+
+None of our repositories contains the publisher's code or artwork. You bring the app, and our scripts do the rest.
+
+## The pipeline
+
+```
+your copy of the app        extract                       app-rebuild                  Xcode
+(Mac App Store or .ipa)  →  www/ + SHA256 check        →  Cordova 8 shell            →  Simulator, iPhone,
+                            (+ deobfuscated modules)      + original plugins            iPad, Mac
+                                                          + your www/, unchanged
+```
+
+| step | repo | what it does | how it is checked |
+|---|---|---|---|
+| 1. extract | [`extract`](https://github.com/BHC-Preservation/extract) | copies `www/` out of your app, decodes `index.min.js` with webcrack | 2087 + 111 files compared against SHA-256 sums |
+| 2. rebuild | [`app-rebuild`](https://github.com/BHC-Preservation/app-rebuild) | creates a cordova-ios 8 project with the original plugin set and puts your `www/` inside | JS plugin modules compared with the original app's `cordova_plugins.js` |
+| 3. run | Xcode | Simulator, or your own device with your Apple ID | |
 
 ## Why this works
 
-*Colonies* is a Cordova app. Its native binary is FairPlay-encrypted, but all game logic, texts, artwork and
-sounds sit in the bundle's `www/` folder as plain files, unencrypted. The native part is only a set of public
-Cordova plugins (Bluetooth, Nordic DFU, file access and so on).
+*Colonies* is a Cordova app. Its native binary is FairPlay-encrypted and can't be re-signed. But all of the game
+logic, texts, artwork and sounds sit in the bundle's `www/` folder as plain files, and the native side is just
+public Cordova plugins (Bluetooth LE, Nordic DFU, files and so on). So we keep the original `www/` and rebuild
+only the native shell, from public sources.
 
-That gives two independent pieces:
-
-| piece | where it comes from | can it be shared? |
+| piece | comes from | in our repos? |
 |---|---|---|
-| `www/` (game logic and assets) | your own copy of app 1.3.13 | no, it is the publisher's copyrighted work |
-| native shell (Cordova + plugins) | public open-source projects | yes |
+| `www/` (game logic and assets) | your own copy of app 1.3.13 | no, it is the publisher's work |
+| native shell (Cordova + plugins) | public open-source projects | yes, with build fixes for current Xcode |
 
-## Extracting `www/`: [`extract`](https://github.com/BHC-Preservation/extract)
+## 1. Extract
 
 You need app 1.3.13, the last version, from an Apple ID that owns it:
 
@@ -36,41 +53,79 @@ cd extract && mise install && mise trust
 ./extract.sh ~/Downloads/Colonies.ipa # or an .ipa / .zip of the app
 ```
 
-The script writes two folders:
+Output:
 
 - `out/app-snapshot/`: `www/`, `Info.plist` and `config.xml`, checked against `SHA256SUMS` (2087 files),
 - `out/deob/`: `index.min.js` decoded with [webcrack](https://github.com/j4k0xb/webcrack) at a pinned version,
-  109 webpack modules, also checked (111 files).
+  109 webpack modules (111 files), also checked.
 
-When both checks pass, the module numbers used on this site (e.g. `3488`, `7616`) and the line references in
-our notes point at the same code in your copy. A different app version or webcrack version gives different numbers.
+When both checks pass, the module numbers on this site (e.g. `3488`, `7616`) point at the same code in your copy.
 
-**Confirmed (November 2026):** extracting from the installed Mac app and from a zipped copy of it gives
-output identical to our reference copy.
+**Confirmed (November 2026):** extracting from the installed Mac app and from a zipped copy of it gives output
+identical to our reference copy.
 
-Keep the output to yourself. The repo contains only the script and checksums.
+## 2. Rebuild
 
-## Rebuilding the app: [`app-rebuild`](https://github.com/BHC-Preservation/app-rebuild)
-
-The App Store build can't be patched or re-signed: any change to `www/` breaks its signature. To keep the app
-running when the store version stops installing, and to get a debuggable build, we rebuild the native shell from
-public sources and put the **original, unmodified `www/`** inside it:
-
-- cordova-ios 8 (required by current Xcode), the original 23 plugins at their original versions, apart from a few
-  documented exceptions needed by current iOS and Xcode,
-- separate bundle ID, so it installs next to the original app and keeps its own data,
-- two small scripts loaded before the game code: compatibility shims for current WebKit and a guard for the dead
-  publisher API (time out, block, answer locally, or forward to a [replacement server](online.md#replacement-server)),
-- optional on-screen debug log and Safari Web Inspector.
-
-The rebuild takes `www/` from wherever you extracted it, so the two steps are:
+Needs macOS, Xcode with an iOS Simulator runtime, CocoaPods and mise. Clone it next to `extract`:
 
 ```bash
 git clone https://github.com/BHC-Preservation/app-rebuild.git
-extract/extract.sh                 # → extract/out/app-snapshot
-app-rebuild/setup.sh               # finds ../extract/out/app-snapshot on its own
-# or: app-rebuild/setup.sh --snapshot=/path/to/app-snapshot
+cd app-rebuild && mise install
+./setup.sh                            # finds ../extract/out/app-snapshot on its own
+cd colonies
+LANG=en_US.UTF-8 mise exec -- npx cordova build ios --emulator --buildConfig=build.json
 ```
 
-**Status:** runs in the iOS Simulator up to the main menu. Bluetooth (ARC) and firmware updates through the
-rebuilt app have not been tested on a device yet.
+`setup.sh` builds the project from scratch on every run: cordova-ios 8.2.0, the original 23 plugins at their
+original versions (with a few documented exceptions), your `www/`, and two small scripts loaded before the game
+code. The first run takes a few minutes (npm and CocoaPods).
+
+Options:
+
+| option | effect |
+|---|---|
+| `--snapshot=DIR` | take `www/` from another folder |
+| `--api=timeout` (default), `block`, `fake`, or a URL | what happens to requests for the dead publisher API: fail after 1 s, fail at once, answer locally, or forward to a [replacement server](online.md#replacement-server). Without this, the app could hang on "checking firmware" |
+| `--unlock-fleets` | opt-in, one-line patch: the fleet picker uses the ARC's fleet table instead of hiding every fleet (see [setup](setup.md)) |
+
+## 3. Run
+
+- **Simulator:** open `colonies/platforms/ios/App.xcworkspace` in Xcode and run.
+- **iPhone, iPad or Apple Silicon Mac:** in the same workspace pick your Team under *Signing & Capabilities* and
+  run on your device. A free Apple ID works, but the build expires after 7 days. Bluetooth (the ARC) needs a real device.
+
+The rebuilt app is called **Colonies BHC** and has its own bundle ID, so it installs next to the original and keeps
+its own settings and saved games.
+
+For debugging there's an on-screen log (triple-tap the top-left corner: console, errors, every request, hung native
+calls) and Safari Web Inspector.
+
+## What differs from the original
+
+- Native shell: cordova-ios 8 instead of 6, needed by current Xcode and iOS.
+- A few plugins at newer versions or with build fixes, each listed with its reason in the `app-rebuild` README.
+- `bhc-compat.js`: shims for current WebKit (e.g. `screen.orientation.lock()` no longer settles) and the API guard above.
+- `bhc-debug.js`: the debug overlay.
+- The game code itself (`www/js/index.min.js`) is **not modified** unless you choose `--unlock-fleets`.
+
+## Status
+
+- **Confirmed:** extract matches the reference copy. The rebuild runs in the iOS Simulator (iOS 27.2) through the
+  intro and disclaimer to the main menu.
+- **Not tested yet:** Bluetooth with a real ARC and firmware updates through the rebuilt app.
+
+## How we handle copyright
+
+The goal is a game that keeps working for the people who bought it, not a copy of the publisher's work.
+
+- **We publish tools and knowledge, never the app.** Scripts, checksums, build fixes and this documentation. Code,
+  artwork, sounds and firmware stay on the owner's machine.
+- **You start from your own copy.** Every step runs on an app you obtained yourself, and the result is for your own use.
+  Don't share the extracted files or the apps you build.
+- **Reverse engineering serves interoperability:** describing how the app and the ARC talk, so the device can be used
+  without the official app. This site describes behaviour and protocols, not code.
+- **A future independent client** will be written from this documentation, not from the app's code, with its own
+  interface and no assets from the original.
+
+This project is not affiliated with Three Headed Monster. If you represent the publisher and have concerns, please
+open an issue in one of the repositories.
