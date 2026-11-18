@@ -129,6 +129,27 @@ its own settings and saved games.
 For debugging there's an on-screen log (triple-tap the top-left corner: console, errors, every request, hung native
 calls) and Safari Web Inspector.
 
+## Android and Amazon Fire
+
+So far the rebuild targets iOS only, but an Android build should be possible, and with it Amazon Fire tablets:
+Fire OS is Android without Google services (Fire OS 7 is Android 9, Fire OS 8 is Android 11), and the game doesn't
+use Google services.
+
+- The game code is the same on every platform and already handles Android: Bluetooth and location permissions
+  (including the Android 12+ ones) and Android asset paths for audio.
+- The original app was configured for Android too, and every plugin it uses has an Android implementation,
+  including Bluetooth LE and Nordic DFU.
+- The `www/` you extract from the iOS app is enough. Cordova generates its own platform files.
+
+Roughly: the same `www/` and plugin list as for iOS, `cordova platform add android` instead of `ios`, then
+`cordova build android` and install the APK with `adb install` (on Fire: allow apps from unknown sources). This
+needs JDK 17 and the Android SDK, but no Mac.
+
+**Not tried yet.** [`app-rebuild/android/`](https://github.com/BHC-Preservation/app-rebuild/tree/master/android)
+has notes and an outline script, not a working build. Expected work: newer versions of a few plugins for current
+Android (notably the Nordic DFU library), audio paths under cordova-android's `https://localhost` scheme, and
+checking Bluetooth permissions on Android 12+. Reports are welcome.
+
 ## What differs from the original
 
 - Native shell: cordova-ios 8 instead of 6, needed by current Xcode and iOS.
@@ -142,6 +163,7 @@ calls) and Safari Web Inspector.
 - **Confirmed:** extract matches the reference copy. The rebuild runs in the iOS Simulator (iOS 27.2) through the
   intro and disclaimer to the main menu.
 - **Not tested yet:** Bluetooth with a real ARC and firmware updates through the rebuilt app.
+- **Not started:** an Android / Fire OS build (outline only, see above).
 
 ## How we handle copyright
 
