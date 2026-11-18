@@ -8,9 +8,9 @@ title: Scenarios and difficulty
 
 App 1.3.13 contains a nearly complete **scenario mode**: 21 scenarios, each with its own planet, rules, win and
 loss conditions and a start configuration for the ARC. The release build hides it. This page describes what the
-code contains (modules `5183`, `9546`, `6606`, `7616`, `8736`, `9073`), how to turn it on in a rebuilt app, and
-how the planet **difficulty** levels work. Everything here comes **from the app code**. Nothing about scenarios
-has been tested on an ARC yet.
+app code contains (modules `5183`, `9546`, `6606`, `7616`, `8736`, `9073`), how firmware 1.0.23 runs a scenario
+(static analysis of the firmware, November 2026), how to turn scenarios on in a rebuilt app, and how the planet
+**difficulty** levels work. Nothing about scenarios has been tested on an ARC yet.
 
 ## Why scenarios are not visible
 
@@ -26,9 +26,8 @@ The rebuilt app can lift the first gate with
 [`setup.sh --unlock-scenarios`](https://github.com/BHC-Preservation/app-rebuild#scenarios---unlock-scenarios).
 It changes the flag and nothing else, so the picker still shows only the seven available scenarios.
 
-**Open question:** it is unknown whether firmware 1.0.23 handles scenario games. Firmware strings contain no
-"scenario" text. The app, however, has texts for scenario-only ARC events (occurrences 1001–1084, below), which
-suggests the ARC side was at least planned.
+Firmware 1.0.23 does support scenario games (see [How the ARC runs a scenario](#how-the-arc-runs-a-scenario)),
+but this has not been tried on a device.
 
 ## The scenarios
 
@@ -64,7 +63,7 @@ suggests the ARC side was at least planned.
 - **start buildings**: the modules the players must connect before the game starts (always a basic set: well,
   solar plant, residential dome, life support, atmospheric synthesizer, sometimes more).
 - **config** is the scenario configuration sent to the ARC (below). Scenarios 0, 4 and 19 have none. Scenario 19 is
-  marked available anyway, so it probably starts as a plain game, or fails.
+  marked available anyway; it would start as a plain coop or solo game with the default rules.
 - Some scenarios name obligatory managers (1: two, 7: one, 12: four) and suggested managers.
   Scenario 4 asks at the end for the number of fully researched artifacts: the players win with at least 3 per
   player (9 in solo).
@@ -89,46 +88,108 @@ The first byte is the number of bytes that follow. Then come records:
 [category] [sub] [length] [length bytes of data]
 ```
 
-The record types used (category/sub, data length):
+The record types the scenarios use:
 
-| record | length | used in | notes |
+| record | length | used in | meaning (from the firmware) |
 |---|---|---|---|
-| `01 05`, `01 06`, `01 07` | 1 | 2, 15 | |
-| `03 0a`, `03 0b`, `03 0e` | 7 | most | `03 0e` carries a start building: the app puts the connected building's ID in byte 2 of the data |
-| `04 05`, `04 06` | 3 | 3, 5, 6, 14, 15 | |
-| `05 01` | 15 | 2 | |
-| `06 01` | 2 | 1 | |
-| `06 02`, `06 07`, `06 08` | 4 | most | |
-| `06 09` | 6 | most | |
-| `09 02` | 1 | 1 | |
-| `09 05` | 12 | most | |
-| `09 07` | 6 | 7 | |
-| `09 08` | 1 | 8, 10, 13, 16, 20 | |
-| `0a 0f` | 2 | most | |
-| `0a 10`, `0a 11` | 1, 2 | 18 | |
+| `01 05`, `01 06`, `01 07` | 1 | 2, 15 | unknown |
+| `03 0e` | 7 | most | **start building**: slot (0–17), building ID, construction progress (≤ 100), position. The app writes the connected building's ID into the second byte |
+| `03 0a`, `03 0b` | 7 | 1 | properties of a building type, unknown |
+| `04 05`, `04 06` | 3 | 3, 5, 6, 14, 15 | colony status (happiness / security / technical), probably start values |
+| `05 01` | 15 | 2 | a decree definition: decree ID + 14 bytes |
+| `06 01` … `06 09` | 2–6 | most | **end-of-game conditions and the tracker**, see below |
+| `09 05` | 12 | most | **start population**: six signed 16-bit values in hundreds of people (colonists, security, marines, scientists, prisoners, total) |
+| `09 02`, `09 07`, `09 08` | 1–6 | 1, 7, 8, 10, 13, 16, 20 | unknown |
+| `0a 0f`, `0a 10`, `0a 11` | 1–2 | most | unknown |
 
-The meaning of the records is not known yet; it is decided by the firmware. Scenario 13's length byte (100) does not
-match its data (97 bytes), a mistake in the app's table. That scenario is not available anyway.
+The firmware also has category `0d` (events: force an event in a given round, redefine a standard event), which no
+scenario uses. An unknown record or a wrong length makes the ARC refuse the game. Scenario 13's length byte (100)
+does not match its data (97 bytes), so that scenario most likely fails to start; it is not available anyway.
 
-### During and after the game
+## How the ARC runs a scenario
+
+From a static analysis of firmware 1.0.23. Not tested on a device.
+
+- **Game type.** A scenario is bit 7 of the game type: `0x82` (130) is coop, `0x83` (131) is solo. Semi-coop with bit
+  7 is rejected, and so is a fleet in a scenario. Apart from that a scenario plays like coop or solo, with one
+  difference: the coop/solo "not enough points" loss is skipped.
+- **Configuration.** The records are parsed in **every** new game, not only in scenarios. Each category is a group
+  of settings with default values that give the standard game; a record overrides one of them. When a saved game is
+  loaded, the records are not parsed again, so a loaded scenario game probably runs with the default rules
+  (to be checked on a device).
+- **Scenario ID.** The ARC uses the ID for two things only: the scenario planet (built in for IDs 0–20; any other ID
+  makes the ARC refuse the game) and the scenario events 1001–1084 (four built-in events for each scenario 0–20).
+  Everything else (tracker, win, loss) comes from the configuration.
+
+### End-of-game conditions (`06 01` … `06 08`)
+
+| record | setting | default |
+|---|---|---|
+| `06 01` | population threshold (16-bit) | 150 |
+| `06 02` | **win 1** condition mask (result 2) | `0x0f` |
+| `06 03` | number of completed modules | 15 |
+| `06 04` | round limit (no scenario changes it) | 20 |
+| `06 05` | points threshold | 1 |
+| `06 06` | loss threshold (16-bit, −1 = depopulation) | −1 |
+| `06 07` | **loss** condition mask (result 4) | `0x31` |
+| `06 08` | **win 2** condition mask (result 3) | `0` |
+
+The masks are 32-bit (4 bytes LE). Each bit is a built-in condition; when it is met, the game ends with that result
+and the bit's reason code:
+
+| bit | condition | reason |
+|---|---|---|
+| 0 | population vs the threshold | 1 |
+| 1 | number of completed modules | 2 |
+| 2 | points (coop/solo outside scenarios) | 3 |
+| 3 | round limit reached | 4 |
+| 4 | third Terran dependence | 5 |
+| 5 | third month of riots | 6 |
+| 6 | tracker ≤ minimum | 8 |
+| 7 | tracker ≥ maximum | 7 |
+| 8 | security above 3 | 9 |
+| 9–14 | combinations written for particular scenarios (e.g. bit 13: a set of buildings completed and all colony statuses ≥ 0, the Colonial Olympics goal) | 10–15 |
+
+Conditions are checked once per round, tracker first, then loss, win 1 and win 2; a later result overrides an
+earlier one, so a win beats a loss in the same round.
+
+### The tracker (`06 09`)
+
+```
+06 09 06 | enabled (1) | max | min | start | up rule | down rule
+```
+
+All values are signed bytes. The app only sends this record at the start and never touches the tracker again.
+The ARC sets the value to `start`, updates it **once per round** (at "end round", `01 01 02 01`) and reports it in
+byte 152 of the [dynamic state](game.md#dynamic-state-01-01-03-02). Reaching `max` or `min` ends the game only if
+the matching mask bit (7 or 6) is set.
+
+| rule | up | down | used by |
+|---|---|---|---|
+| 0 | – | – | |
+| 1 | +1 every round | −1 every round | up: 7, 15; down (countdowns): 1, 5, 11, 12 |
+| 2 | +1 per active decree of certain types | −1 for the same | 2 |
+| 3 | +1 when a certain counter grows (orders, probably) | −1 likewise | 18 |
+| 4 | while security is negative, + the sum of some colony values | – | 3 |
+| 5 | grows with one population group | – | 8 |
+| 6 | = the number of completed modules from a fixed set (Industrial Dome, Landing Pad, Storage, Tanks, Temporary Residential Cubes) | – | 9 |
+| 7 | = the population | – | 13 |
+| 8 | + marines | – | 16 |
+| 9 | +1 per active decree of one type | −1 per decree of another type, −1 while security > 0, minus one population group | 20 |
+
+Down rules 4–8 do not exist. Some rule details (which decrees, which counters) are still inferred from scenario texts.
+
+### Events
+
+The ARC picks the round's event in this order: an event forced for this round (category `0d`), then a random one
+among the current scenario's events 1001–1084 whose conditions are met (many depend on the tracker value or the
+round), then a random standard event. Each event fires at most once per game.
+
+### During and after the game (app)
 
 - The decree rule "no decrees or directives in the last round" does not apply ([cards](cards.md)).
-- ARC events (occurrences) 1001–1084 are scenario-only: the app has their texts and news posts and shows those only
-  in scenario games (`3118`).
-- The game ends like a semi-coop game: the ARC reports win (result 2 or 3) or loss. The end screen shows the
-  scenario's own win/loss text.
-
-## Who runs a scenario: app or ARC
-
-The app only **presents** a scenario. Everything that decides the game comes from the ARC:
-
-- the tracker value: byte 152 of the [dynamic state](game.md#dynamic-state-01-01-03-02) (signed). The app only shows it next to the
-  scenario's tracker name and range (`dtSummaryScreen`, `6606`);
-- win or loss and its reason (bytes 149–151), and the round limit;
-- the scenario events 1001–1084.
-
-So the scenario **rules** live in the firmware: built in and selected by the scenario ID (sent as the planet ID),
-driven by the configuration records, or both. Which of these it is has not been checked yet.
+- The app has texts and news posts for events 1001–1084 and shows them only in scenario games (`3118`).
+- The end screen shows the scenario's own win/loss text.
 
 ## Writing your own scenario
 
@@ -142,14 +203,18 @@ on the deobfuscated modules (`setup.sh --from-deob --patch=FILE`):
 | texts (`scenario_<ID>_…`) in each language | module `7133` |
 | artwork `img/scenarios/s_<ID>.jpg` (picker) and `l_<ID>.jpg`, splash background class `.bg<ID>` | `www/img`, `www/css/style.min.css` (CSS exists for 0–20 only) |
 
-The ARC side is the hard part, and it decides what is possible:
+The ARC decides what is possible. With the configuration alone a scenario can set:
 
-1. **Re-telling an existing scenario** (same ID and `config`, new story, texts or start buildings): app-only, works
-   as far as the original scenario works.
-2. **New ID with an existing scenario's `config`**: shows whether the ARC cares about the ID. If it ignores the ID
-   and follows the records, new scenarios can be put together from the known records.
-3. **New rules**: needs the meaning of the configuration records, i.e. analysis of how firmware 1.0.23 handles
-   game types 130/131 and the start-data tail.
+- the tracker: min, max, start, one of 9 up rules and 4 down rules;
+- any combination of the 15 condition bits for loss, win 1 and win 2, and the thresholds (population, modules,
+  round limit, points);
+- the start population and up to 18 start buildings;
+- building types, decree definitions and standard event definitions, and a forced event for a given round
+  (category `0d`, events up to 255).
+
+It cannot add new rules, new conditions, new events 1001+, or use an ID above 20. A new scenario has to borrow an
+ID from 0–20 and gets that scenario's planet and its four events with it. The app's planet table (`9546`) must
+then match the borrowed ID.
 
 Before any of this: check on a real ARC that an original scenario starts at all.
 
