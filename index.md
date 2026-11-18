@@ -21,10 +21,11 @@ native shell for current iOS, no dependency on the publisher's servers.
 2. **[In-game communication](game.md)**: what flows between the ARC and the app, from a new game, through rounds, to the end of a match.
 3. **[Firmware update](update.md)**: how updates work, why the app blocks them, and how to update manually.
 4. **[Game setup](setup.md)**: planets and their effects, auxiliary fleets, managers, and traces of the planned metagame.
-5. **[NFC cards and tokens](cards.md)**: manager, decree, directive, ambassador, governor and fleet cards, their IDs and the rules the app applies.
-6. **[Online services](online.md)**: everything the app requested from the publisher's server, what was lost with it,
+5. **[Scenarios and difficulty](scenarios.md)**: the hidden scenario mode (21 scenarios), how to turn it on, and what planet difficulty changes.
+6. **[NFC cards and tokens](cards.md)**: manager, decree, directive, ambassador, governor and fleet cards, their IDs and the rules the app applies.
+7. **[Online services](online.md)**: everything the app requested from the publisher's server, what was lost with it,
    and a [replacement server](online.md#replacement-server) you can run yourself.
-7. **[Build the app yourself](app.md)**: turn your own copy of the app into one you build, sign and debug, for current iOS (Android and Fire: outline only, [see here](app.md#android-and-amazon-fire)).
+8. **[Build the app yourself](app.md)**: turn your own copy of the app into one you build, sign and debug, for current iOS (Android and Fire: outline only, [see here](app.md#android-and-amazon-fire)).
 
 ## Where this comes from
 

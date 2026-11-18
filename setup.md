@@ -22,7 +22,7 @@ the metagame link went live. It never did, so these 34 are all there is. The tab
 (`colony`, `activeMission`, `pioneered`, `lunarBaseCount`, …) that no code reads.
 
 Scenarios use their own planets (module `9546`) and send coordinates `0x7FFF`/`0xFF` and the scenario
-planet ID.
+planet ID, see [scenarios](scenarios.md).
 
 ### What is sent to the ARC
 

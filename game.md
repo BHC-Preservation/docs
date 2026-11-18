@@ -103,7 +103,7 @@ The app will not send a new game, authentication or state queries until the ARC 
 | 11 | 1 | planet: ID |
 | 12 | 1 | fleet (ID, `0` = none) |
 | 13 | 5 | players: manager IDs, empty seats are `0`. Solo: `FF 00 00 00 00` |
-| 18 | … | scenario configuration (list of building IDs). Outside scenarios a single `00` byte |
+| 18 | … | scenario configuration (length byte + records, see [scenarios](scenarios.md#configuration-format)). Outside scenarios a single `00` byte |
 
 With no planet selected the app sends defaults: quadrant (10, 27010), system (50, 50), ID 3.
 
