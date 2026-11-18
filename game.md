@@ -244,7 +244,7 @@ two-byte values are LE (signed where noted).
 | 149 | game ended (0/1) |
 | 150 | result: `2`, `3` = win, `4` = loss |
 | 151 | reason: `1` depopulation, `5` Terran dependence, `6` riots |
-| 152 | DT (int8) |
+| 152 | scenario tracker ("doom tracker") value, int8; see [scenarios](scenarios.md
 | 157 | vote in progress (0/1) |
 | 158 | vote type |
 | 159 | score (int16) |

@@ -118,6 +118,41 @@ match its data (97 bytes), a mistake in the app's table. That scenario is not av
 - The game ends like a semi-coop game: the ARC reports win (result 2 or 3) or loss. The end screen shows the
   scenario's own win/loss text.
 
+## Who runs a scenario: app or ARC
+
+The app only **presents** a scenario. Everything that decides the game comes from the ARC:
+
+- the tracker value: byte 152 of the [dynamic state](game.md#dynamic-state-01-01-03-02) (signed). The app only shows it next to the
+  scenario's tracker name and range (`dtSummaryScreen`, `6606`);
+- win or loss and its reason (bytes 149–151), and the round limit;
+- the scenario events 1001–1084.
+
+So the scenario **rules** live in the firmware: built in and selected by the scenario ID (sent as the planet ID),
+driven by the configuration records, or both. Which of these it is has not been checked yet.
+
+## Writing your own scenario
+
+The app side is simple. A scenario is a data entry, and a [rebuilt app](app.md) can add or change one with a diff
+on the deobfuscated modules (`setup.sh --from-deob --patch=FILE`):
+
+| what | where |
+|---|---|
+| scenario entry: ID, `isAvailable`, difficulty, title and text keys, tracker (name, range, multiplier), start buildings, obligatory and suggested managers, `config` | module `5183` |
+| planet with the same ID (name, parameters, artwork) | module `9546` |
+| texts (`scenario_<ID>_…`) in each language | module `7133` |
+| artwork `img/scenarios/s_<ID>.jpg` (picker) and `l_<ID>.jpg`, splash background class `.bg<ID>` | `www/img`, `www/css/style.min.css` (CSS exists for 0–20 only) |
+
+The ARC side is the hard part, and it decides what is possible:
+
+1. **Re-telling an existing scenario** (same ID and `config`, new story, texts or start buildings): app-only, works
+   as far as the original scenario works.
+2. **New ID with an existing scenario's `config`**: shows whether the ARC cares about the ID. If it ignores the ID
+   and follows the records, new scenarios can be put together from the known records.
+3. **New rules**: needs the meaning of the configuration records, i.e. analysis of how firmware 1.0.23 handles
+   game types 130/131 and the start-data tail.
+
+Before any of this: check on a real ARC that an original scenario starts at all.
+
 ## Planet difficulty
 
 Every planet in the standard list has one of seven difficulty levels: very easy, easy, normal, hard, very hard,
