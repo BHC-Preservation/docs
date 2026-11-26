@@ -21,6 +21,21 @@ Communication goes through the **Nordic UART Service (NUS)**:
 - You must enable notifications on the TX characteristic. All responses and events arrive there.
 - In update mode the ARC is a completely different BLE device, described in [firmware update](update.md).
 
+### Link details
+
+| item | value |
+|---|---|
+| device name | `BHCHQ`, the same on every unit; the bootloader advertises as `BHCHQ_DFU` |
+| advertising | full name and flags (LE only, limited discoverable) in the advertising data, the NUS UUID in the **scan response**. 40 ms interval, 180 s per burst, restarted until a client connects |
+| connections | one link only. Pairing is refused, nothing is encrypted |
+| connection parameters | interval 20–75 ms, latency 0, supervision timeout 4 s. The ARC asks for a parameter update 5 s after connecting, then every 30 s, three attempts; if negotiation fails it disconnects |
+| MTU | the ARC requests 247 B (data length 251) |
+| ARC → client | always **20-byte notifications, about 100 ms apart**, whatever the MTU. A 222 B response therefore takes over 1 s |
+| client → ARC | writes are collected in a 512 B buffer and processed once per loop pass. Longest frame the ARC accepts: 246 B; a longer frame is dropped without an answer |
+
+Two delays come from the BLE loop: right after a connection the ARC can take up to about 3 s before it reads
+the first request, and each loop pass waits up to about 1 s for outgoing data before it reads the next one.
+
 ## Frame
 
 Every message in both directions has the same shape:
@@ -60,6 +75,10 @@ The receiver has to append notifications to a buffer until both conditions hold:
 and the CRC matches. Only then is the frame complete. The app does exactly this (module `2432`). Skip the
 reassembly and every response will be shifted by one.
 
+In the other direction, send all chunks of one frame back to back so that they land in the same read. The ARC
+looks for `55`, takes one frame per read and drops anything after it; it cannot reassemble a frame split across
+two reads.
+
 ## ARC response
 
 ```
@@ -76,6 +95,7 @@ offset: 0      1          2           3           4         5…
   | `03` | device info (ID, battery, firmware) |
   | `04` | operating mode (game mode, bootloader) |
   | `00` | generic error (e.g. unsupported protocol version) |
+  | `05` | test commands (simulated events, see [in-game communication](game.md#simulating-events)) |
 
 - **`status`** (byte 4): `01` means OK, `FF` means error. On error, byte 5 is the error code.
 - **data** starts at offset 5 and runs up to the second-to-last byte. Multi-byte numbers are **little-endian**.
@@ -86,6 +106,24 @@ Known error codes:
 |---|---|
 | `47` (71) | unsupported protocol version. Full frame: `55 05 07 00 FF 47 EF` (confirmed) |
 | other | the app shows a generic "problem with ARC" message and clears its queue |
+
+> **Correction:** there are more codes. **The error code is an `errno` value.** The ARC runs the NuttX RTOS; handlers
+> return `-errno`, and the low byte goes on the wire, with NuttX's numbering. A simple command that succeeds is
+> answered `<category> 01 00`, i.e. error code 0.
+
+| code | errno | meaning |
+|---|---|---|
+| `00` | – | no error |
+| `01` (1) | `EPERM` | no game in progress (state queries, end round) |
+| `0D` (13) | `EACCES` | the storage is not initialised, or a fleet lock/unlock is not authorised |
+| `10` (16) | `EBUSY` | a simulated event is still pending; end round after the game has ended |
+| `16` (22) | `EINVAL` | the usual answer to a malformed or refused request: bad length, unknown command, invalid player, locked fleet, a planet that does not exist… |
+| `47` (71) | | unsupported protocol version. Full frame: `55 05 07 00 FF 47 EF` (confirmed) |
+| `69` (105) | `ENOBUFS` | start data of a new game too long |
+
+A frame with a bad CRC gets **no answer at all**, and so does an unknown command in categories `02`–`05`. In
+category `01`, an unknown request `01 01 xx` is answered with `EINVAL`; any other second byte gets no answer.
+If your client hears nothing, check the frame before assuming the ARC is slow.
 
 Exception: for saved-game queries (`01 01 06 …`), status `FF` simply means there is no save, not an error.
 
@@ -130,6 +168,17 @@ Payload (without header and CRC) and the ready-made frame for version 5.
 | battery | `03 02` | `55 05 06 03 02 15` | 2 B, LE: `value × 0.0004615` = voltage in V |
 | firmware | `03 03` | `55 05 06 03 03 12` | 8 B, LE: a number, e.g. `10013`, read as `1.0.13` (zero-padded to 6 digits and split into pairs) |
 
+What the values are:
+
+- **ID**: the nRF52's FICR `DEVICEID`, two 32-bit words.
+- **battery**: the raw 14-bit sample of the nRF52 ADC (internal reference, gain 1/4) on input AIN0,
+  refreshed periodically by the main loop. The ARC never converts it; the factor is the app's. A reply of `0` means no
+  sample has been taken yet.
+- **firmware**: the `app_version` field of the Nordic bootloader settings page: the application version of the
+  last DFU package installed, or the value written into the settings page when the ARC was programmed. The
+  other 4 bytes are reserved (zero). The bootloader compares this number when updating (see
+  [firmware update](update.md#the-bootloader)).
+
 Examples (confirmed):
 
 - battery `55 05 08 03 01 BC 34 C6`: `0x34BC × 0.0004615 = 6.23 V`,
@@ -141,12 +190,21 @@ a random value generated at startup.
 
 Older protocol versions had `01` instead of `03` here (e.g. `55 01 06 03 02 4D`).
 
+> **Correction:** in protocol version 1 these commands are the same; only the version byte (and so the CRC)
+> differs. In `55 01 06 03 02 4D` the `01` is the version and `03` still the category.
+
 ### Operating mode (category `04`)
 
 | command | payload | v5 frame | effect |
 |---|---|---|---|
 | enter game mode | `04 01 03` | `55 05 07 04 01 03 5D` | response: byte 4 = `01` means the ARC is in game mode |
 | enter bootloader (DFU) | `04 01 01` | `55 05 07 04 01 01 53` | the ARC disconnects and comes back as the bootloader. **Confirmed** |
+| service mode | `04 01 02` | `55 05 07 04 01 02 5A` | answers OK |
+| restart | `04 02` | `55 05 06 04 02 7E` | answers OK, then reboots the ARC about 2 s later |
+
+Mode `01` is DFU, `02` service, `03` game. The DFU command is answered first (`04 01 00`); then the ARC tells
+its tasks to quit, waits about 2 s, closes the BLE link, sets the "enter DFU" flag in the nRF52's `GPREGRET` register and resets into the
+bootloader.
 
 ### Game (category `01`) and board (category `02`)
 
