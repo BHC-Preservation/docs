@@ -107,6 +107,22 @@ The app will not send a new game, authentication or state queries until the ARC 
 
 With no planet selected the app sends defaults: quadrant (10, 27010), system (50, 50), ID 3.
 
+What the ARC checks before it accepts a new game (a failure is answered `01 FF <errno>`, almost always `16`, `EINVAL`; start
+data longer than 222 B gives `69`, `ENOBUFS`):
+
+- the length: 18 B plus the configuration block, at most 222 B in total; the records must add up exactly to
+  the configuration's length byte (see [scenarios](scenarios.md#configuration-format)),
+- the game type and the fleet: `0`, or a fleet below 150 that is unlocked (see [fleets](#fleets)). This check
+  looks up lock slot = fleet ID, not fleet − 1,
+- the players: 1–5 managers with IDs 1–9, no duplicates, the list ends at the first `0` (all five bytes must be
+  below 10),
+- the planet: the ARC **regenerates the planet from the coordinates**. The star at system X/Y must exist in the
+  quadrant, the planet number must exist in that system, and it, or failing that its moon, must be an exoplanet
+  (kind `2`); the moon is then used for the colony.
+  See [game setup](setup.md#planets).
+
+The start time is only stored with the game; the ARC does not set its clock from it.
+
 #### Authentication (command `01 01 01 04`)
 
 Right after the new game the app sends an MD5 hash (16 B):
@@ -121,6 +137,9 @@ MD5( start data zero-padded to 222 B
 ARC ID, battery and "boot" must come from the same session (the app reads them on every connection).
 It looks like a guard against a client that has not talked to this particular ARC first.
 We do not know what the ARC does if this step is skipped.
+
+The ARC's EEPROM has a 512-byte section for a public key (see [hardware](hardware.md#eeprom)), which the
+firmware never reads.
 
 ### Continuing a saved game
 
@@ -164,6 +183,13 @@ Action (5 B):
 
 The limit is 25 actions per round.
 
+What the ARC itself checks: the game must be in progress (`01 FF 01`, `EPERM`) and not
+ended (`01 FF 10`, `EBUSY`); every player in an action must be in the game and every action type must be known
+(`EINVAL`). The other rules from
+[NFC cards](cards.md#rules-the-app-enforces) (one decree per player, directives only by their owner, no decrees
+in the last round) are left to the app. A directive played by anyone other than its owner is not refused, but
+reported as "not possible" (see the decree entries below).
+
 Example: a round with no actions is `55 05 09 01 01 02 01 00 CF`. A single "decree 13 in solo" action is
 `55 05 0E 01 01 02 01 01 02 FF 0D 00 00 9F`.
 
@@ -205,6 +231,9 @@ above, zero-padded). For example, "player 3 tapped their card" is the frame
 `55 05 16 05 01 02 01 03 00 00 00 00 00 00 00 00 00 00 00 00 00 1E`. Most likely the ARC then sends it back
 as a regular event, which is handy for testing without a board.
 
+> **Correction:** the ARC answers `05 01 00` and about 1 s later sends the event back as a regular one (details in
+> [NFC cards](cards.md#simulating-a-card)).
+
 ## Response structures
 
 Offsets are counted from the start of the data (frame offset 5). Single-byte signed values are int8;
@@ -216,20 +245,32 @@ two-byte values are LE (signed where noted).
 |---|---|
 | 0 | current round |
 | 1 | number of rounds |
-| 2 | special-state flags, bit 0 = least significant: 0 catastrophe, 1 overcrowding, 2–4 riots, 5–7 Terran dependence |
+| 2 | special-state flags, bit 0 = least significant: 0 catastrophe, 1 overcrowding, 2–4 riots, 5–7 Terran dependence. **Correction:** riots are bits 2–4 (riot stage 1, 2, 3), Terran dependence is bit 5 only, bits 6–7 are reserved |
 | 3, 4, 5 | happiness, security, technical state (int8) |
 | 6, 7, 8 | a second value for each of those three indicators (int8, most likely the change) |
+| 9 | size of this round's migration in units of 100 people (int8, ≥ 0; arrivals if the migration balance is positive, departures if negative) |
 | 10–15 | migration: colonists, security force, marines, scientists, prisoners, total (int8) |
+| 16–21 | change of the migration values since the previous round (int8), same order |
 | 22–31 | population (u16): colonists 22, security force 24, marines 26, scientists 28, prisoners 30 |
 | 32 | number of citizens (u16) |
 | 34–43 | population change since the previous round (int16), same groups in the same order |
+| 44 | total population change (int16) |
 | 46 | colony capacity (u16) |
+| 48 | capacity including overcrowding (u16) |
+| 50–61 | population change not caused by riots or modifiers (migration, prisoner conversion, catastrophes, overcrowding and the rounding noise), 6 × int16: the five groups and the total |
+| 62–73 | population change from riots, same layout |
+| 74–85 | population change from this round's decree and event modifiers, same layout |
 | 86–89 | resources, usage: power, gas, liquids, life support |
 | 90–93 | resources, maximum (same order) |
 | 94–97 | accumulators, maximum |
 | 98–101 | accumulators, usage |
 | 102, 104 | stock: two values (int16) |
 | 106–110 | income: taxes, other, modules, construction, import (int8) |
+
+**Population is counted in hundreds.** The ARC keeps every group in units of 100 people. Each reported group is
+100 × the internal count plus a random offset of −50…+50 (none on the initial update), and the total is capped
+at the overcrowded capacity by reducing colonists. The values are fixed for the round: repeated queries return
+the same numbers. Capacity is always a multiple of 100.
 
 ### Dynamic state (`01 01 03 02`)
 
@@ -240,13 +281,15 @@ two-byte values are LE (signed where noted).
 | 109 | number of active decrees |
 | 110–133 | up to 6 decrees, 4 B each: ID, type, state byte (upper 5 bits: manager, lower 3: state), percent |
 | 134 | current occurrence (event) ID (u16) |
-| 141 | end-of-game timestamp (u32) |
+| 136–148 | the event's requirements and effects (13 B): byte 0 has the number of requirements in the low 4 bits and the number of effects in the high 4 bits, then up to six (type, value) pairs, requirements first |
+| 141 | end-of-game timestamp (u32). **Correction:** this is where the app reads it, but these bytes belong to the event block; the ARC's timestamp is at 153–156 |
 | 149 | game ended (0/1) |
 | 150 | result: `2`, `3` = win, `4` = loss |
 | 151 | reason: `1` depopulation, `5` Terran dependence, `6` riots |
-| 152 | scenario tracker ("doom tracker") value, int8; see [scenarios](scenarios.md
-| 157 | vote in progress (0/1) |
-| 158 | vote type |
+| 152 | scenario tracker ("doom tracker") value, int8; see [scenarios](scenarios.md#the-tracker-06-09) |
+| 153–156 | the ARC's clock (seconds, u32) taken at each end-of-game check, i.e. every round. The ARC does not set this clock |
+| 157 | vote in progress (0/1). **Correction:** score poll present (0/1) |
+| 158 | vote type. **Correction:** poll type: `0` none, `1` partial (standings in the poll rounds, by default 6, 12, 18 and 24), `2` final (after the end of the game). A partial poll fills in only the manager and points of each player |
 | 159 | score (int16) |
 | 161–210 | up to 5 players, 10 B each: manager, points, president, green decrees, red decrees, campaigns, modules, directives, ambassador, order of command points |
 
@@ -260,9 +303,17 @@ Building in the queue (6 B): ID, build progress in %, then a 32-bit LE bit field
 | 3 | building's leg |
 | 6 | parent ID |
 | 2 | tier |
-| 5 | `tol` (meaning unknown) |
-| 5 | counter |
-| 2 | state |
+| 5 | `tol` (meaning unknown). **Correction:** "time of life", rounds since the building was placed |
+| 5 | counter: rounds since placement or since the last catastrophe; progress = 100 × counter / build time, at most 100 |
+| 2 | state: `0` normal, `1` hit by a catastrophe |
+
+`tol` grows by one every round, and the **tier** is `1`, or `2` once `tol` is above 5.
+A tier 2 building uses its second set of values.
+
+**Decree entries**: type `1` red, `2` green, `3` directive, `4` ambassador, `5` free.
+State `1` adopted, `2` not adopted (lost the vote, or discarded by a directive), `3` not possible. `percent` is
+the shown vote result: random 51–100 when adopted, 0–49 when not, 100 for directives and the ambassador, 0 when
+not possible.
 
 ### Initial state (`01 01 03 03`)
 
@@ -291,3 +342,52 @@ answers outside game mode too. See [game setup](setup.md#auxiliary-fleets).
 Unlock `01 01 04 02 <slot>` and lock `01 01 04 03 <slot>` (slot = fleet − 1) change the table; the reply is
 `01 01 00`. **Confirmed** with fleet 11 (`55 05 09 01 01 04 02 0a bb` → `55 05 07 01 01 00 94`). The change is
 stored in the ARC's EEPROM. See [how fleets are granted](setup.md#how-fleets-are-granted-firmware-analysis-unlock-confirmed).
+
+### Planet generator queries
+
+The ARC can answer questions about any part of the galaxy with the same
+generator it uses for a new game (see [game setup](setup.md#what-is-sent-to-the-arc)). `qx`, `qy` are int16 LE, `sx`, `sy` and `planet` one byte each.
+
+| request | payload | example (v5): Sol, quadrant (10, 27010), star (50, 50), Mars | response |
+|---|---|---|---|
+| stars in a quadrant | `01 01 05 01 <qx> <qy>` | `55 05 0C 01 01 05 01 0A 00 82 69 97` | 41 B |
+| system | `01 01 05 02 <qx> <qy> <sx> <sy>` | `55 05 0E 01 01 05 02 0A 00 82 69 32 32 9F` | 68 B |
+| planet | `01 01 05 03 <qx> <qy> <sx> <sy> <planet>` | `55 05 0F 01 01 05 03 0A 00 82 69 32 32 03 93` | 94 B |
+
+A star that does not exist, or a planet number ≥ the number of planets in the system (planets are numbered
+from 0), is answered with `EINVAL`.
+
+**Quadrant** (41 B): byte 0 is the number of stars (up to 10), then 10 × 4 B: star X (u16), star Y (u16).
+Unused entries are zero.
+
+**System** (68 B): byte 0 is the number of stars (1–3), then 3 × 22 B star records, then the number of planets
+(1 B). A star record is: type (1 B: `1` O, `2` B, `3` A, `4` F, `5` G, `6` K, `7` M, `8` W, `9` L, `10` D,
+`11` T, `12` Y), rings (1 B: `1` none, `2` present), then the 20 B object values below.
+
+**Planet** (94 B): two 47 B body records, the planet itself and its moon (kind `1` and all other bytes
+zero if there is none).
+
+| offset | size | field |
+|---|---|---|
+| 0 | 1 | kind: `1` none, `2` exoplanet, `3` terrestrial, `4` giant, `5` simple moon |
+| 1 | 1 | type 1: exoplanet `2` Desert, `3` Dunes, `4` Rocky, `5` Metal, `6` Volcanic, `7` Craters, `8` Earthlike; terrestrial `2` rocky, `3` lava; giant `2` cold, `3` hot, `4` dwarf, `5` ice, `6` ocean |
+| 2 | 1 | type 2: the second exoplanet type of a combination (e.g. DunesVolcanic), same values |
+| 3 | 1 | helper flags |
+| 4 | 1 | moon: `1` none, `2` planet-type moon (described in the second record), `3` simple moon |
+| 5 | 1 | rings: `1` none, `2` present |
+| 6 | 7 | parameters, one byte each, **at most one bit set** (all zero for non-exoplanets; `special` is set only on the built-in planets) (see below): liquids, atmosphere, relief, temperature, stability, resources, special |
+| 13 | 20 | object values, 5 × u32 LE, each × 1000: mass, radius, visibility, moon probability, gravity |
+| 33 | 13 | the planet's modifiers, same format as the event block of the [dynamic state](#dynamic-state-01-01-03-02) |
+| 46 | 1 | difficulty |
+
+Parameter bits (bit 0 = `0x01`):
+
+| byte | bit 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| liquids | lack | minimal | dense | periodic rivers | rivers | lakes | seas | oceans |
+| atmosphere | lack | minimal | dense | scattered clouds | heavy clouds | storms | | |
+| relief | plains | deep canyons | spiky hills | porous ground | mountains | monoliths | | |
+| temperature | ice cold | frost | cold | medium | warm | hot | boiling hot | |
+| stability | stable | unstable ground | earthquakes | | | | | |
+| resources | lack | xenon | water | ore | plasteel | | | |
+| special | ice caps | extreme weather | magnetic interference | radioactive | tidal lock | plasma burst | seasons | reserved |
