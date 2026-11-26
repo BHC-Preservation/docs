@@ -92,19 +92,54 @@ The record types the scenarios use:
 
 | record | length | used in | meaning (from the firmware) |
 |---|---|---|---|
-| `01 05`, `01 06`, `01 07` | 1 | 2, 15 | unknown |
+| `01 05`, `01 06`, `01 07` | 1 | 2, 15 | unknown. **Correction:** `01 05` is meant as the Terran dependence at the start (bits 0–4 counter, bit 5 active), but the ARC never copies it into the game state, so it has no effect; `01 06`, `01 07` unknown |
 | `03 0e` | 7 | most | **start building**: slot (0–17), building ID, construction progress (≤ 100), position. The app writes the connected building's ID into the second byte |
-| `03 0a`, `03 0b` | 7 | 1 | properties of a building type, unknown |
-| `04 05`, `04 06` | 3 | 3, 5, 6, 14, 15 | colony status (happiness / security / technical), probably start values |
-| `05 01` | 15 | 2 | a decree definition: decree ID + 14 bytes |
+| `03 0a`, `03 0b` | 7 | 1 | properties of a building type, unknown. **Correction:** **migration tendencies of a building type** for tier 1 / tier 2: building type, then colonists, security, marines, scientists, prisoners, total (signed bytes; their sum also adds to the migration amount, the total byte is ignored) |
+| `04 05`, `04 06` | 3 | 3, 5, 6, 14, 15 | colony status (happiness / security / technical), probably start values. **Correction:** `04 05` is a **permanent offset** added every round (default `0, 0, −5`), `04 06` the values at the start |
+| `05 01` | 15 | 2 | a decree definition: decree ID + 14 bytes. **Correction:** **redefine a decree**: decree index, type, the requirement/effect counts (low / high 4 bits), then six (type, value) pairs, the same block format as the event in the [dynamic state](game.md#dynamic-state-01-01-03-02) |
 | `06 01` … `06 09` | 2–6 | most | **end-of-game conditions and the tracker**, see below |
 | `09 05` | 12 | most | **start population**: six signed 16-bit values in hundreds of people (colonists, security, marines, scientists, prisoners, total) |
-| `09 02`, `09 07`, `09 08` | 1–6 | 1, 7, 8, 10, 13, 16, 20 | unknown |
+| `09 02`, `09 07`, `09 08` | 1–6 | 1, 7, 8, 10, 13, 16, 20 | unknown. **Correction:** `09 02` (1 B) is a constant added to migration every round, `09 07` (6 B) the base migration weights (colonists, security, marines, scientists, prisoners, total); `09 08` unknown |
 | `0a 0f`, `0a 10`, `0a 11` | 1–2 | most | unknown |
 
 The firmware also has category `0d` (events: force an event in a given round, redefine a standard event), which no
 scenario uses. An unknown record or a wrong length makes the ARC refuse the game. Scenario 13's length byte (100)
 does not match its data (97 bytes), so that scenario most likely fails to start; it is not available anyway.
+
+More records exist that the scenarios do not use:
+
+| record | length | setting | default |
+|---|---|---|---|
+| `01 01` … `01 04` | 1 | catastrophe, overcrowding, riot stage 1, riot stage 2 at the start (bits 0–4 counter, bit 5 active) | 0 |
+| `02 01`, `02 02`, `02 03` | 1 | Cryogenic Cubes: chance in %, stock gained, prisoner units used | 30, 10, 1 |
+| `03 01`, `03 02`, `03 03` | 2 | building type, then: build time / special function / population group hit by a catastrophe | |
+| `03 04`, `03 05` | 6 | building type, then power, gas, liquids, life support, stock (in tenths), tier 1 / tier 2 | |
+| `03 06`, `03 07` | 9 | building type, then storage capacity and fill for power, gas, liquids, life support, tier 1 / tier 2 | |
+| `03 08`, `03 09` | 4 | building type, then happiness, security, technical, tier 1 / tier 2 | |
+| `03 0c`, `03 0d` | 3 | building type, then capacity normal / overcrowded, tier 1 / tier 2 | |
+| `03 0f` | 1 | rounds added once, at the start, to the build time of every building type whose build time is not 0 | 0 |
+| `03 10` | 1 | extra buildings hit by every catastrophe | 0 |
+| `04 01` … `04 04` | 1 | colony status weights: population on happiness, security force on security, prisoners on security, colonists on technical | 1, 10, 10, 10 |
+| `05 02` | 2 | decree index, then `−1` to disable that decree | |
+| `08 01` | 4 | rounds with a score poll (bit mask) | rounds 6, 12, 18, 24 |
+| `09 01` | 1 | life support per population (stored, but not used) | 5 |
+| `09 03` | 1 | chance in % per round that a unit becomes a prisoner while security is negative | 10 |
+| `09 04` | 1 | chance in % per prisoner unit to be released (every second round) | 20 |
+| `09 06` | 2 | base capacity, normal and overcrowded | 0, 0 |
+| `0a 01` | 1 | unused | 0 |
+| `0a 02` … `0a 06` | 1 | tax per unit in hundredths: colonists, scientists, security force, marines, prisoners | 12, 24, 0, 0, 0 |
+| `0a 07` … `0a 0a` | 1 | loss in % per round: power, life support, gas, liquids | 2, 2, 0, 0 |
+| `0a 0b` | 6 | base balance of power, gas, liquids, life support (signed bytes) and starting stock (int16; only the low byte is used) | −5 each, 30 |
+| `0a 0c` | 8 | base storage capacity × 4 and fill × 4 | 0 |
+| `0a 0d` | 1 | stock cost per unfinished building, per round | 5 |
+| `0a 0e` | 1 | stock bonus per round while under Terran dependence | 30 |
+| `0c 01` | 1 | campaign effect (`1` decree, `2` happiness, `3` technical, `4` security), but the ARC ignores it: a campaign always raises the player's decree chance and score | 1 |
+| `0d 01` | 3 | force an event: round (1 B), event ID (u16; only the low byte is stored) | |
+| `0d 02` | 15 | redefine an event: event index (u16), then the 13-byte requirement/effect block | |
+
+Categories: `01` special states, `02` building network (Cryogenic Cubes settings), `03` buildings, `04` colony status, `05` decrees,
+`06` end of game, `07` players, `08` score poll, `09` population, `0a` resources, `0b` tracker (no settings), `0c` actions,
+`0d` events.
 
 ## How the ARC runs a scenario
 
