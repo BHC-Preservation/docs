@@ -26,6 +26,7 @@ native shell for current iOS, no dependency on the publisher's servers.
 7. **[Online services](online.md)**: everything the app requested from the publisher's server, what was lost with it,
    and a [replacement server](online.md#replacement-server) you can run yourself.
 8. **[Build the app yourself](app.md)**: turn your own copy of the app into one you build, sign and debug, for current iOS (Android and Fire: outline only, [see here](app.md#android-and-amazon-fire)).
+9. **[Hardware](hardware.md)**: the ARC's board, pins, EEPROM layout, and the bus that connects the buildings.
 
 ## Where this comes from
 
