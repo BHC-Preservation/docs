@@ -113,9 +113,36 @@ After the update, the "boot" value in the ID response (bytes 8–11) changes, wh
 the same. Since 1.0.23 is the app's minimum version, the official app should no longer force an update
 (from the app code; not tested).
 
+## The bootloader
+
+The ARC uses Nordic's stock **Secure DFU bootloader from nRF5 SDK 16.0.0** with SoftDevice **S140 7.0.1** on an
+**nRF52840**.
+
+| setting | value |
+|---|---|
+| advertised name | `BHCHQ_DFU` (the application advertises as `BHCHQ`) |
+| ways in | the `GPREGRET` flag set by the application (`04 01 01`), the buttonless-DFU flag in the bootloader settings (the application never sets it), or a missing or invalid application. Entry by button or pin reset is disabled |
+| inactivity timeout | 120 s, then it starts the installed application again (the "about 2 minutes" above) |
+| bonding | not required |
+| signature | ECDSA P-256 with SHA-256, checked with the nRF52840's CryptoCell. Updates must be signed; at boot only the application's CRC is checked, not its signature |
+| **downgrade** | **refused**: a package with a lower application version is rejected. The **same** version is accepted, so re-flashing 1.0.23 over 1.0.23 works |
+| package requirements | hardware version 52, SoftDevice requirement `0xCA` (S140 7.0.1) |
+
+The application version the bootloader compares is the number `03 03` reports (`10023` for 1.0.23).
+
+**Memory map** (1 MB flash): MBR and SoftDevice at the bottom, the application from `0x27000` up to the
+bootloader (836 KB, of which the top 12 KB are reserved for application data), the bootloader at `0xF8000`, the MBR parameter page at `0xFE000` and the bootloader settings page at `0xFF000`.
+
+**Recovering a bricked ARC.** As long as the bootloader works and the installed version is not newer than
+1.0.23, the ARC can be put back on 1.0.23 over BLE. Programming over SWD (the nRF52's debug interface) bypasses
+the bootloader and its checks, but needs access to the SWD signals on the board (not documented here) and a
+full flash image (SoftDevice, bootloader, settings page and application).
+
 ## What we don't know
 
 - Whether the per-ARC packages from the server (`fw/{ARC_ID}/…`) differed from the `first_boot` package
   and from the bundled one. The bundled 1.0.23 worked on the unit we tested.
-- Whether the bootloader allows flashing an older version. Secure DFU usually forbids it.
+- Whether the bootloader allows flashing an older version. Secure DFU usually forbids it. **Correction:** it does
+  not: older versions are refused, only the same or a newer version is accepted (see
+  [the bootloader](#the-bootloader)).
 - Whether any version newer than 1.0.23 existed. If you have a different DFU package for the ARC, please open an issue in this repository.
