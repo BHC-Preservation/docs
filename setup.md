@@ -35,17 +35,34 @@ So the ARC most likely **rebuilds the planet from its coordinates** and applies 
 The app's table is a precomputed copy of the same generator output, used for the artwork and descriptions.
 This also means any coordinates should work, not just the 34 in the app. That is unverified.
 
+> **Correction:** the ARC does rebuild the planet from its coordinates, but the app's planets are not generator
+> output, and not every coordinate works:
+>
+> - **Built-in systems.** The firmware stores **30 hand-made systems** (Sol, Alpha Centauri, Barnard's Star,
+>   Tau Ceti, Groombridge…); 17 of them have planets (66 in total), the other 13 are stars without planets.
+>   They are all in the nine quadrants with X 0, 10, 20 and Y 27000, 27010, 27020. Their parameters are fixed; only the modifiers and difficulty are computed. Sol is
+>   quadrant (10, 27010), star (50, 50), with planets 0 Mercury, 1 Venus, 2 Terra, 3 Mars, 4 Jupiter, 5 Saturn,
+>   6 Uranus, 7 Neptune. The app's default planet (ID 3) is therefore **Mars**.
+> - **Everything else is procedural**: the ARC generates stars, planets and their parameters from the
+>   coordinates. The same coordinates always give the same system.
+> - **Not every coordinate works.** Quadrant X must be in −150…150 and Y in 26000…28000. The star must be one of
+>   the stars generated for that quadrant (most of the 100 × 100 positions are empty; a quadrant has 0–4
+>   procedural stars, at even coordinates). The planet number is a 0-based index into the system, and the body
+>   (or its moon) must be an **exoplanet**; terrestrial bodies and giants cannot be colonised. Otherwise the new
+>   game is refused (`EINVAL`).
+
 ### Planet parameters
 
 | parameter | values |
 |---|---|
-| type | Desert, Dunes, Rocky, Metal, Volcanic, Craters and their combinations (e.g. DunesVolcanic), EarthlikeWorld |
+| type | Desert, Dunes, Rocky, Metal, Volcanic, Craters and their combinations (e.g. DunesVolcanic), EarthlikeWorld. **Correction:** EarthlikeWorld is only Terra and is never generated |
 | liquids | lack, minimal, periodic rivers, rivers, lakes, seas, oceans, dense |
 | atmosphere | lack, minimal, scattered clouds, heavy clouds, storms, dense |
 | relief | plains, mountains, deep canyons, spiky hills, porous ground, monoliths |
 | temperature | ice cold, frost, cold, medium, warm, hot, boiling hot |
 | stability | stable, unstable ground, earthquakes |
-| special | extreme weather, magnetic interference, radioactive, plasma burst, ice caps, seasons |
+| special | extreme weather, magnetic interference, radioactive, plasma burst, ice caps, seasons. **Correction:** tidal lock is missing |
+| resources | lack, xenon, water, ore, plasteel (in the firmware's planet record; the app does not show it) |
 | gravity | low (< 0.65 g), normal, high (> 1.35 g), with g = 9.83 |
 | difficulty | very easy, easy, normal, hard, very hard, extreme, nightmare |
 
@@ -94,6 +111,20 @@ modifiers. Numeric modifiers are summed and capped (module `6214`); flags are sw
 
 So the planet choice is not cosmetic: it changes building output, the colony indicators, construction time
 and the event pool. The app only *describes* the effects; the numbers that matter are computed by the ARC.
+
+> **Correction:** most of these effects exist only in the app's description. The ARC applies three, listed below.
+
+**What the ARC actually applies.** A planet produces exactly three modifiers, applied once when the game
+starts:
+
+| planet | modifier | effect |
+|---|---|---|
+| liquids: lack / minimal / anything else | Automatic Well liquids × 0.5 / × 1.0 / × 1.5 | well output 15 (tier 2: 30) becomes 7 / 15 / 22 (15 / 30 / 45) |
+| atmosphere: lack / minimal / dense or cloudy | Atmospheric Synthesizer gas × 0.5 / × 1.0 / × 1.5 | same numbers |
+| stability: unstable ground or earthquakes | catastrophe chain + 1 | each catastrophe hits one more (random) building |
+
+The ARC also computes a **difficulty** value for each planet (reported in the
+[planet query](game.md#planet-generator-queries)), but does not use it in the game.
 
 The app also uses the planet for ambient sounds (no atmosphere → "deep space" ambience, extreme weather,
 no liquids) and for a "planet modifier" on the score screen: nightmare 0, extreme 25, very hard 50, hard 75,
@@ -166,10 +197,12 @@ Read on an ARC with firmware 1.0.23 (November 2026), outside game mode, with no 
 
 - The response is **150 bytes** of data, one per fleet slot, not the 25 the app reads (the app drops
   everything after slot 25).
-- **Fleets 1–10 have value `2` (available)**, and all other slots have `1` (most likely "locked").
+- **Fleets 1–10 have value `2` (available)**, and all other slots have `1` (most likely "locked"). **Correction:** `1` is locked.
   The query works without entering game mode first.
 - This matches the app's debug simulation (`simulateFleetData` marks exactly fleets 1–10 as available),
-  so 1–10 is most likely the factory default.
+  so 1–10 is most likely the factory default. **Correction:** formatting the EEPROM writes `02` into slots
+  0–9 (see [hardware](hardware.md#eeprom)). A new game checks fleet N against slot N (not N − 1), so with the
+  factory table fleets 1–9 can be started and fleet 10 is refused until slot 10 is unlocked.
 
 So the ARC already offers ten fleets, and only the app's `_debug` gate hides them from players.
 
@@ -214,6 +247,26 @@ Every change rewrites the fleet section of the EEPROM, so use fresh batteries.
 - The ARC has effect data for **fleets 1–20 only**. Fleets 5, 7, 13, 15 and 18 have no effect on the ARC side
   (their bonuses are for the players: starting resources, expeditions, decree cards), and the entries for 6 and
   20 are disabled. **Fleets 21–27, described in the app, do nothing on the ARC.**
+- Only **permanent** effects are applied, once at the start. What each fleet does on the ARC:
+
+  | fleet | ARC effect | compared with the app's text |
+  |---|---|---|
+  | 1 | starting stock + 15 (30 → 45) | as described |
+  | 2 | happiness + 3 | the scientists are not added |
+  | 3 | starting stock + 35 | the Terran dependence is not applied |
+  | 4 | power + 10 every round | as described |
+  | 8 | gas storage capacity + 5 | the extra +5 fill is not applied: the storage starts empty and fills only from surplus production |
+  | 9 | liquids storage capacity + 5 | the same |
+  | 10 | the ARC uses 20 % less stock | as described |
+  | 11 | security + 3 | the marines and security force are not added |
+  | 12 | **the same as fleet 10** | not "stock every month" |
+  | 14 | technical state + 5 | as described |
+  | 16 | power storage capacity + 5 | the same as 8 and 9 |
+  | 17 | happiness + 1, security − 1, migration + 10 every round | as described |
+  | 19 | happiness, security and technical state + 2 each | as described |
+
+  The missing parts (citizens, reserves, Terran dependence) are one-off effects, which the ARC does not apply
+  for fleets.
 - To actually play with a fleet you still need a client without the app's `_debug` gate: our own, or the
   rebuilt app with that check removed.
 
