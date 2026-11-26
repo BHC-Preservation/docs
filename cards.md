@@ -281,6 +281,16 @@ the manager variant is called only from debug helpers. There is no fleet card va
 Most likely the ARC answers by sending the event back as if the card had been tapped. We have not seen what
 the ARC actually sends for a simulated or a real card (frame length, status byte, padding).
 
+> **Correction:** the ARC first answers `05 01 00`, then about 1 s later sends the event as if the card had
+> been tapped. The request must be exactly 22 bytes long and the event type must be `01` (building) or `02`
+> (card), otherwise the answer is `05 FF 16` (`EINVAL`). Only one simulation can be pending at a time
+> (`05 FF 10`, `EBUSY`). A request whose second byte is not `01` gets no answer. A simulated card skips the
+> checks a real one gets (type range and CRC).
+>
+> The event frame is always 22 bytes: `55 <ver> 16 02 01 <event type> <15 bytes> <crc>`. Byte 4 (`01`) is not
+> a status but the subcommand "callback". For a card, the 15 bytes are the card record's bytes 0–14 (the card's
+> own CRC is dropped); for a building see [board events](game.md#board-events). Unused bytes are zero.
+
 ## Fleet cards
 
 What the app does with a fleet card (`02 04 …`):
@@ -314,7 +324,9 @@ against a real card.
 - The ARC's reader is an **NXP MFRC522** (or its FM17522 clone), the common 13.56 MHz ISO 14443A reader.
 - The firmware talks to tags with the MIFARE Ultralight / NTAG command set: READ (`0x30`, 16 bytes from a page)
   and COMPATIBILITY WRITE (`0xA0`, 4 bytes per page). Game cards are therefore most likely **NTAG21x or
-  MIFARE Ultralight** tags, which any phone with NFC can read.
+  MIFARE Ultralight** tags, which any phone with NFC can read. **Correction:** the reader driver reads
+  without MIFARE Classic authentication, so it works only with Ultralight-compatible tags (MIFARE Ultralight,
+  NTAG).
 
 ### Layout
 
@@ -333,16 +345,111 @@ unchanged to the app as a board event: `55 05 16 02 01 02 <type> <bytes 1–14> 
 the app's job. Bytes 2–14 are ignored by both the firmware and app 1.3.13 (the app only logs them for fleet
 cards), so what real cards store there can only be learned by reading them.
 
+> **Correction:** on all cards bytes 2–14 are zero (see [what the cards contain](#what-the-cards-contain)).
+
 | type | meaning (app) | byte 1 |
 |---|---|---|
 | 1 | manager card | manager ID |
 | 2 | decree or directive | decree ID (201–209 = directive) |
 | 3 | governor token or ambassador | `1` = governor, anything else = ambassador |
 | 4 | fleet card | logged only |
-| 5 | **nothing**: accepted by the ARC, but app 1.3.13 logs it as an unknown card type | — |
+| 5 | **nothing**: accepted by the ARC, but app 1.3.13 logs it as an unknown card type. **Correction:** the firmware's ambassador card type | — |
 
 Type 5 has no meaning anywhere in firmware 1.0.23 or app 1.3.13; it was most likely reserved for something
 that never shipped.
+
+> **Correction:** type 5 is the firmware's separate **ambassador card** type. The ambassador ended up as type 3
+> with value 2, which is what the app expects, but the ARC still accepts type 5.
+
+### What the cards contain
+
+Every card record has the same simple form: **type, one value byte, 13 zero bytes, CRC-8**.
+
+| card | record (pages 8–11) |
+|---|---|
+| manager 1–9 | `01 <id> 00…00 <crc>`, e.g. manager 3: `01 03 00 00 00 00 00 00 00 00 00 00 00 00 00 9D` |
+| decree 1–108 | `02 <id> 00…00 <crc>`, e.g. decree 13: `02 0D 00 … 00 28` |
+| directive 201–209 | `02 <id> 00…00 <crc>`, e.g. War! (201): `02 C9 00 … 00 83` |
+| governor token | `03 01 00 … 00 3D` |
+| ambassador | `03 02 00 … 00 15` |
+| fleet 1–4 | `04 <fleet> 00…00 <crc>`, e.g. fleet 1: `04 01 00 … 00 3F` |
+
+The ID is the single byte 1. Bytes 2–14 are zero on every card type, fleet cards included.
+
+To make a replacement card, write such a record to pages 8–11 of a blank NTAG/Ultralight tag with a phone. The CRC is the one from [protocol](protocol.md#frame).
+
+### All card records
+
+Every record is 16 bytes: byte 0 (type), byte 1 (ID), bytes 2–14 `00`, byte 15 (CRC). The tables give bytes 0,
+1 and 15. For example decree 13 is `02 0D 00 00 00 00 00 00 00 00 00 00 00 00 00 28`.
+
+**Managers, governor, ambassador, fleets**
+
+| card | byte 0 | byte 1 | CRC |
+|---|---|---|---|
+| manager 1: Art Chen | `01` | `01` | `50` |
+| manager 2: Ava Xu | `01` | `02` | `78` |
+| manager 3: Paul Bloch | `01` | `03` | `9D` |
+| manager 4: Boris Artyomov | `01` | `04` | `28` |
+| manager 5: Lucas Johannes | `01` | `05` | `CD` |
+| manager 6: Giselle Carter | `01` | `06` | `E5` |
+| manager 7: Mac McCain | `01` | `07` | `00` |
+| manager 8: Athena Gore | `01` | `08` | `88` |
+| manager 9: Vlad Pokorny | `01` | `09` | `6D` |
+| governor token | `03` | `01` | `3D` |
+| ambassador | `03` | `02` | `15` |
+| fleet 1: Light bulk carrier fleet | `04` | `01` | `3F` |
+| fleet 2: Research Vessel | `04` | `02` | `17` |
+| fleet 3: Terran bulk carrier fleet | `04` | `03` | `F2` |
+| fleet 4: Orbital solar array | `04` | `04` | `47` |
+
+Fleet cards exist only for fleets 1–4.
+
+**Directives** (type `02`)
+
+| directive | byte 1 | CRC |
+|---|---|---|
+| 201 War! | `C9` | `83` |
+| 202 Promised Land | `CA` | `AB` |
+| 203 Hidden stash | `CB` | `4E` |
+| 204 Private expedition | `CC` | `FB` |
+| 205 Offshore account | `CD` | `1E` |
+| 206 Humanoid subroutines | `CE` | `36` |
+| 207 The Discovery Program | `CF` | `D3` |
+| 208 State of Emergency | `D0` | `21` |
+| 209 Pilgrimage | `D1` | `C4` |
+
+**Decrees 1–108** (type `02`, byte 1 = decree ID; names in [decrees](#decrees-type-2-ids-1200))
+
+| ID | b1 | CRC | ID | b1 | CRC | ID | b1 | CRC | ID | b1 | CRC |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | `01` | `88` | 28 | `1C` | `B7` | 55 | `37` | `56` | 82 | `52` | `35` |
+| 2 | `02` | `A0` | 29 | `1D` | `52` | 56 | `38` | `DE` | 83 | `53` | `D0` |
+| 3 | `03` | `45` | 30 | `1E` | `7A` | 57 | `39` | `3B` | 84 | `54` | `65` |
+| 4 | `04` | `F0` | 31 | `1F` | `9F` | 58 | `3A` | `13` | 85 | `55` | `80` |
+| 5 | `05` | `15` | 32 | `20` | `99` | 59 | `3B` | `F6` | 86 | `56` | `A8` |
+| 6 | `06` | `3D` | 33 | `21` | `7C` | 60 | `3C` | `43` | 87 | `57` | `4D` |
+| 7 | `07` | `D8` | 34 | `22` | `54` | 61 | `3D` | `A6` | 88 | `58` | `C5` |
+| 8 | `08` | `50` | 35 | `23` | `B1` | 62 | `3E` | `8E` | 89 | `59` | `20` |
+| 9 | `09` | `B5` | 36 | `24` | `04` | 63 | `3F` | `6B` | 90 | `5A` | `08` |
+| 10 | `0A` | `9D` | 37 | `25` | `E1` | 64 | `40` | `82` | 91 | `5B` | `ED` |
+| 11 | `0B` | `78` | 38 | `26` | `C9` | 65 | `41` | `67` | 92 | `5C` | `58` |
+| 12 | `0C` | `CD` | 39 | `27` | `2C` | 66 | `42` | `4F` | 93 | `5D` | `BD` |
+| 13 | `0D` | `28` | 40 | `28` | `A4` | 67 | `43` | `AA` | 94 | `5E` | `95` |
+| 14 | `0E` | `00` | 41 | `29` | `41` | 68 | `44` | `1F` | 95 | `5F` | `70` |
+| 15 | `0F` | `E5` | 42 | `2A` | `69` | 69 | `45` | `FA` | 96 | `60` | `76` |
+| 16 | `10` | `17` | 43 | `2B` | `8C` | 70 | `46` | `D2` | 97 | `61` | `93` |
+| 17 | `11` | `F2` | 44 | `2C` | `39` | 71 | `47` | `37` | 98 | `62` | `BB` |
+| 18 | `12` | `DA` | 45 | `2D` | `DC` | 72 | `48` | `BF` | 99 | `63` | `5E` |
+| 19 | `13` | `3F` | 46 | `2E` | `F4` | 73 | `49` | `5A` | 100 | `64` | `EB` |
+| 20 | `14` | `8A` | 47 | `2F` | `11` | 74 | `4A` | `72` | 101 | `65` | `0E` |
+| 21 | `15` | `6F` | 48 | `30` | `E3` | 75 | `4B` | `97` | 102 | `66` | `26` |
+| 22 | `16` | `47` | 49 | `31` | `06` | 76 | `4C` | `22` | 103 | `67` | `C3` |
+| 23 | `17` | `A2` | 50 | `32` | `2E` | 77 | `4D` | `C7` | 104 | `68` | `4B` |
+| 24 | `18` | `2A` | 51 | `33` | `CB` | 78 | `4E` | `EF` | 105 | `69` | `AE` |
+| 25 | `19` | `CF` | 52 | `34` | `7E` | 79 | `4F` | `0A` | 106 | `6A` | `86` |
+| 26 | `1A` | `E7` | 53 | `35` | `9B` | 80 | `50` | `F8` | 107 | `6B` | `63` |
+| 27 | `1B` | `02` | 54 | `36` | `B3` | 81 | `51` | `1D` | 108 | `6C` | `D6` |
 
 A tag whose SAK byte is `04` is ignored. The ARC also reads the tag's UID before every read or write, but the
 record is what identifies the card.
@@ -364,6 +471,7 @@ for example to recreate a lost card. This has not been tried on a device.
 
 - A lost or damaged card can most likely be **recreated on a blank NTAG/Ultralight tag** by writing the same
   16 bytes to pages 8–11. That needs the original record (read it from the card) or the layout of bytes 1–14.
+  **Correction:** it can, and no original is needed: every record is in [all card records](#all-card-records).
 - The ARC could in principle store a fleet on a card and read it back, which is what the promised fleet trade
   would need.
 
@@ -373,6 +481,11 @@ for example to recreate a lost card. This has not been tried on a device.
 - **The exact event frames** the ARC sends (length, status byte, padding), and whether the ARC sends events
   outside game mode.
 - **Whether the ARC enforces any of the rules above** or accepts any action list it is given.
+
+> **Correction:** bytes 2–14 are zero on every card ([all card records](#all-card-records)). The event frames
+> are described in [simulating a card](#simulating-a-card). The ARC sends card events in any mode, and it
+> does not de-duplicate: every successful read of the reader loop (which runs about once a second) is sent as a
+> new event. The rules the ARC itself checks are listed in [what the ARC checks](game.md#round).
 
 How to find out:
 
